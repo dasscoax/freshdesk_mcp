@@ -474,10 +474,13 @@ async def search_agents(query: str) -> list[Dict[str, Any]]:
 
 @mcp.tool()
 async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
-    """Get unresolved tickets assigned to me.
+    """Get all unresolved tickets assigned to me (the current user).
 
     This tool automatically fetches the current user's agent ID and filters
     for unresolved tickets (status 0) assigned to them.
+    
+    Use this when you need to see tickets assigned to the current authenticated user.
+    This is the best tool for queries like "tickets assigned to me", "my tickets", etc.
 
     Returns:
         Dictionary with tickets and pagination information
@@ -520,10 +523,13 @@ async def get_unresolved_tickets_for_agent(
     assignee_name: Optional[str] = None,
     assignee_id: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Get unresolved tickets assigned to a specific agent.
+    """Get unresolved tickets assigned to a specific agent (by name or ID).
 
     This tool filters tickets by status (unresolved) and assignee.
     Either assignee_name or assignee_id must be provided.
+    
+    Use this when you need to see tickets assigned to another agent, not the current user.
+    For tickets assigned to the current user, use get_unresolved_tickets_assigned_to_me instead.
 
     Args:
         assignee_name: Agent name or email (will be resolved to responder_id).

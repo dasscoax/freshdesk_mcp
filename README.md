@@ -8,7 +8,237 @@ A Model Context Protocol (MCP) server for interacting with the Freshdesk API.
 - **Get current user's agent ID** (NEW!)
 - **Get unresolved tickets by team** (NEW!)
 
-## Installation
+## Quick Start
+
+1. **Install the package**:
+   ```bash
+   pip install freshdesk-mcp-support
+   ```
+
+2. **Get your Freshdesk API key**:
+   - Log into Freshdesk → Profile → Security Settings → Copy API Key
+
+3. **Configure in Cursor/Claude Desktop** (see detailed instructions below)
+
+4. **Restart your IDE** and start using Freshdesk tools!
+
+---
+
+## Install MCP Server in Cursor IDE
+
+### Step 1: Install the Package
+```bash
+pip install freshdesk-mcp-support
+```
+
+### Step 2: Install `uv` (Optional - Only needed for Option A)
+If you want to use Option A which auto-installs the package:
+
+**macOS/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Or using pip:**
+```bash
+pip install uv
+```
+
+**Verify installation:**
+```bash
+uv --version
+```
+
+### Step 3: Configure Cursor IDE
+1. Open Cursor IDE
+2. Open Settings (⌘ + , on Mac, or Ctrl + , on Windows/Linux)
+3. Search for "MCP Servers"
+4. Add the following configuration:
+
+**Option A: Using `uvx` (Auto-installs from PyPI if not found) - SIMPLEST!**
+
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "uvx",
+      "args": [
+        "freshdesk-mcp-support"
+      ],
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*What it does: `uvx` installs `freshdesk-mcp-support` from PyPI if needed, then runs the command.*
+
+**Option B: Using Python directly (Requires pip install first)**
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "python",
+      "args": [
+        "-m",
+        "freshdesk_mcp.server"
+      ],
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*What it does: Runs Python module directly - you must install the package first with `pip install freshdesk-mcp-support`.*
+
+**Option C: Direct script execution (Simplest - Install first)**
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "freshdesk-mcp-support",
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*What it does: Runs the installed `freshdesk-mcp-support` script directly - no args needed. Must install first with `pip install freshdesk-mcp-support`.*
+
+### Step 4: Restart Cursor IDE
+Close and reopen Cursor IDE for the changes to take effect.
+
+### Step 5: Verify Installation
+Open the MCP Server panel in Cursor and verify that the `freshdesk` server is connected and shows available tools.
+
+---
+
+## Install MCP Server in Claude Desktop
+
+### Step 1: Install the Package
+```bash
+pip install freshdesk-mcp-support
+```
+
+### Step 2: Install `uv` (Optional - Only needed for Option A)
+If you want to use Option A which auto-installs the package:
+
+**macOS/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Or using pip:**
+```bash
+pip install uv
+```
+
+**Verify installation:**
+```bash
+uv --version
+```
+
+### Step 3: Configure Claude Desktop
+
+**For Mac:**
+1. Open Finder
+2. Press `⌘ + Shift + G` and navigate to: `~/Library/Application Support/Claude/`
+3. Open or create `claude_desktop_config.json`
+4. Add one of the following configurations:
+
+**Option A: Using `uvx` (Auto-installs from PyPI if not found) - SIMPLEST!**
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "uvx",
+      "args": [
+        "freshdesk-mcp-support"
+      ],
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*`uvx` installs `freshdesk-mcp-support` from PyPI if needed, then runs the command.*
+
+**Option B: Using Python directly (Requires pip install first)**
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "python",
+      "args": [
+        "-m",
+        "freshdesk_mcp.server"
+      ],
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*Runs Python module directly - install first with `pip install freshdesk-mcp-support`.*
+
+**Option C: Direct script (Simplest - No args, install first)**
+```json
+{
+  "mcpServers": {
+    "freshdesk-mcp-support": {
+      "command": "freshdesk-mcp-support",
+      "env": {
+        "FRESHDESK_API_KEY": "your_api_key_here",
+        "FRESHDESK_DOMAIN": "yourdomain.freshdesk.com"
+      }
+    }
+  }
+}
+```
+*Runs the installed script directly - no args needed. Install first with `pip install freshdesk-mcp-support`.*
+
+**For Windows:**
+1. Press `Win + R`
+2. Type `%APPDATA%\Claude` and press Enter
+3. Open or create `claude_desktop_config.json`
+4. Add one of the configurations above
+
+**For Linux:**
+1. Navigate to `~/.config/Claude/`
+2. Open or create `claude_desktop_config.json`
+3. Add one of the configurations above
+
+### Step 4: Restart Claude Desktop
+Close and reopen Claude Desktop for the changes to take effect.
+
+### Step 单位: Verify Installation
+In Claude Desktop, you should see the MCP server indicator showing that the Freshdesk-mcp-support server is connected.
+
+---
+
+## Local Development Installation
+
+For development purposes:
 
 ```bash
 pip install -e .
@@ -16,10 +246,22 @@ pip install -e .
 
 ## Configuration
 
-Set the following environment variables:
+### Getting Your Freshdesk API Key
 
-- `FRESHDESK_API_KEY`: Your Freshdesk API key
+1. Log in to your Freshdesk account
+2. Click on your profile icon (bottom left)
+3. Go to **Security Settings**
+4. Scroll down to **API Key** section
+5. Copy your API key
+
+### Setting Up Environment Variables
+
+Replace the following values in your configuration:
+
+- `FRESHDESK_API_KEY`: Your Freshdesk API key (obtained from the steps above)
 - `FRESHDESK_DOMAIN`: Your Freshdesk domain (e.g., "yourcompany.freshdesk.com")
+
+**Note**: The domain should be just the subdomain part without `https://` or `.freshdesk.com` appended.
 
 ## Usage
 
@@ -92,35 +334,26 @@ query_hash = [
 await filter_tickets(query_hash=query_hash)
 ```
 
-### Get Unresolved Tickets
+### Get Unresolved Tickets Assigned to Me
 
-The `get_unresolved_tickets` tool is a specialized function to get all unresolved tickets assigned to a specific agent:
-
-```python
-# Get my unresolved tickets by name
-await get_unresolved_tickets(assignee_name="john.doe@example.com")
-
-# Get unresolved tickets by ID
-await get_unresolved_tickets(assignee_id=50000560730)
-
-# Get unresolved tickets with specific status
-await get_unresolved_tickets(assignee_id=50000560730, status=[2, 3])  # Open and Pending
-
-# Get unresolved tickets for the current user
-await get_unresolved_tickets
-```
-
-### Get Current Agent ID
-
-The `get_current_agent_id` tool fetches the current authenticated user's agent information:
+The `get_unresolved_tickets_assigned_to_me` tool automatically retrieves all unresolved tickets assigned to the current authenticated user:
 
 ```python
-# Get current agent information
-result = await get_current_agent_id()
-agent_id = result.get("agent", {}).get("id")
+# Get my unresolved tickets (no parameters needed)
+result = await get_unresolved_tickets_assigned_to_me()
 ```
 
-This is useful for automatically filtering tickets assigned to the current user without needing to know their ID upfront.
+### Get Unresolved Tickets Assigned to Agent
+
+The `get_unresolved_tickets_assigned_to_agent` tool retrieves unresolved tickets assigned to a specific agent:
+
+```python
+# Get unresolved tickets by agent name
+result = await get_unresolved_tickets_assigned_to_agent(assignee_name="john.doe@example.com")
+
+# Get unresolved tickets by agent ID
+result = await get_unresolved_tickets_assigned_to_agent(assignee_id=50000560730)
+```
 
 ### Get Unresolved Tickets by Squad
 
@@ -148,6 +381,29 @@ Parameters:
 - `status` (optional): Status to filter by (default: "unresolved")
   - Valid options: "unresolved", "open", "pending", "resolved", "awaiting_l2_response"
 
+### Find Similar Tickets Using AI Copilot
+
+The `find_similar_tickets_using_copilot` tool uses Freshdesk's AI Copilot to find similar tickets:
+
+```python
+# Find similar tickets using AI
+result = await find_similar_tickets_using_copilot(ticket_id=12345)
+```
+
+This tool leverages Freshdesk's AI to analyze the ticket and find similar past tickets with intelligent insights.
+
+### Search Tickets
+
+The `search_tickets` tool performs general text-based searches for tickets:
+
+```python
+# Search by ticket ID
+result = await search_tickets(ticket_id=12345)
+
+# Search by query text
+result = await search_tickets(query="login issue")
+```
+
 ### Complete Filter Parameters
 
 - `assignee_name`: Filter by assignee name or email (resolved to responder_id automatically)
@@ -172,6 +428,47 @@ Run the test suite:
 ```bash
 python tests/test-fd-mcp.py
 ```
+
+## Troubleshooting
+
+### MCP Server Not Connecting
+
+If the MCP server is not connecting in Cursor or Claude Desktop:
+
+1. **Verify Python is installed**: Run `python --version` in your terminal
+2. **Verify package is installed**: Run `pip list | grep freshdesk-mcp-support`
+3. **Check environment variables**: Ensure `FRESHDESK_API_KEY` and `FRESHDESK_DOMAIN` are correctly set
+4. **Check logs**: Look for error messages in Cursor's MCP panel or Claude Desktop's console
+
+### Authentication Errors
+
+If you're getting authentication errors:
+
+1. **Verify API key**: Make sure your API key is correct and hasn't expired
+2. **Check domain**: Ensure the domain format is correct (just the subdomain, e.g., "yourcompany")
+3. **Verify API access**: Log into Freshdesk and confirm API access is enabled for your account
+
+### Module Not Found Errors
+
+If you see "Module not found" errors:
+
+1. **Reinstall the package**: `pip install --upgrade freshdesk-mcp-support`
+2. **Check Python path**: Ensure the correct Python version is being used
+3. **Use Option B**: Try the "Python directly" configuration instead of `uv`
+
+### Platform-Specific Issues
+
+**Mac:**
+- Ensure you have the correct path: `~/Library/Application Support/Claude/`
+- Check file permissions on the config file
+
+**Windows:**
+- Navigate to `%APPDATA%\Claude` using File Explorer
+- Ensure the JSON file is valid (no extra commas, proper quotes)
+
+**Linux:**
+- Check file permissions: `chmod 600 ~/.config/Claude/claude_desktop_config.json`
+- Verify Python is in your PATH: `which python`
 
 ## License
 

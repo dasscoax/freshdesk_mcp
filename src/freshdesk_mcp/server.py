@@ -153,7 +153,7 @@ async def _get_current_agent_id() -> Optional[int]:
     
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
             
@@ -436,7 +436,7 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:

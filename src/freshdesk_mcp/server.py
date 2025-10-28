@@ -96,17 +96,17 @@ async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
     """Helper function to resolve agent name to agent ID."""
     if not agent_name:
         return None
-    
+
     # First, try to check if it's already a numeric ID
     try:
         return int(agent_name)
     except ValueError:
         pass
-    
+
     # Search for agents with the given name
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/agents"
     headers = _get_auth_headers()
-    
+
     async with httpx.AsyncClient() as client:
         try:
             # Search through agents
@@ -116,19 +116,19 @@ async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 agents = response.json()
-                
+
                 if not agents:
                     break
-                
+
                 # Search for matching name or email
                 for agent in agents:
-                    if (agent.get("contact", {}).get("name") and 
+                    if (agent.get("contact", {}).get("name") and
                         agent_name.lower() in agent["contact"]["name"].lower()):
                         return agent["id"]
-                    if (agent.get("contact", {}).get("email") and 
+                    if (agent.get("contact", {}).get("email") and
                         agent_name.lower() in agent["contact"]["email"].lower()):
                         return agent["id"]
-                
+
                 # Check for next page
                 link_header = response.headers.get('Link', '')
                 pagination_info = parse_link_header(link_header)
@@ -138,32 +138,32 @@ async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
                     break
         except Exception as e:
             logging.error(f"Error resolving agent name: {str(e)}")
-    
+
     return None
 
 
 async def _get_current_agent_id() -> Optional[int]:
     """Helper function to get the current logged-in agent's ID.
-    
+
     Returns:
         Agent ID of the current user, or None if unable to fetch
     """
     url = f"https://{FRESHDESK_DOMAIN}/api/_/bootstrap/me"
     headers = _get_auth_headers()
-    
+
     async with httpx.AsyncClient() as client:
         try:
-        response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
-            
+
             # Extract agent ID from response
             agent = data.get("agent", {})
             if agent and "id" in agent:
                 return agent["id"]
         except Exception as e:
             logging.error(f"Error fetching current agent ID: {str(e)}")
-    
+
     return None
 
 
@@ -226,11 +226,11 @@ async def filter_tickets(
     include: Optional[str] = "requester,stats,company,survey"
 ) -> Dict[str, Any]:
     """Filter tickets in Freshdesk using query_hash format or helper parameters.
-    
+
     This tool supports advanced filtering using either:
     1. Native query_hash format (array of condition objects)
     2. Helper parameters like assignee_name, status, priority (automatically converted to query_hash)
-    
+
     Args:
         query_hash: List of filter conditions in native Freshdesk format. Each condition has:
             - condition: Field name (e.g., "responder_id", "status", "cf_custom_field_name", "freshservice_teams")
@@ -246,10 +246,10 @@ async def filter_tickets(
         order_type: Sort direction - "asc" or "desc" (default: "desc")
         exclude: Fields to exclude from response (default: "custom_fields")
         include: Fields to include in response (default: "requester,stats,company,survey")
-    
+
     Returns:
         Dictionary with tickets and pagination information
-    
+
     Examples:
         # Filter with default fields
         query_hash = [
@@ -266,7 +266,7 @@ async def filter_tickets(
                 "value": [0]  # 0=New, 2=Open, 3=Pending, 4=Resolved, 5=Closed
             }
         ]
-        
+
         # Filter with custom fields
         query_hash = [
             {
@@ -292,13 +292,13 @@ async def filter_tickets(
     # Validate input parameters
     if page < PaginationDefaults.MIN_PER_PAGE:
         return {"error": f"Page number must be greater than or equal to {PaginationDefaults.MIN_PER_PAGE}"}
-    
+
     if per_page < PaginationDefaults.MIN_PER_PAGE or per_page > PaginationDefaults.MAX_PER_PAGE:
         return {"error": f"Page size must be between {PaginationDefaults.MIN_PER_PAGE} and {PaginationDefaults.MAX_PER_PAGE}"}
-    
+
     # Build query_hash if using helper parameters
     filters = []
-    
+
     # Resolve assignee name to ID if provided
     if assignee_name:
         assignee_id = await _resolve_agent_name_to_id(assignee_name)
@@ -311,7 +311,7 @@ async def filter_tickets(
             })
         else:
             return {"error": f"Could not resolve assignee name: {assignee_name}"}
-    
+
     # Add status filter if provided
     if status is not None:
         filters.append({
@@ -320,7 +320,7 @@ async def filter_tickets(
             "type": "default",
             "value": [int(status)]
         })
-    
+
     # Add priority filter if provided
     if priority is not None:
         filters.append({
@@ -329,17 +329,17 @@ async def filter_tickets(
             "type": "default",
             "value": [int(priority)]
         })
-    
+
     # Merge with provided query_hash
     if query_hash:
         filters.extend(query_hash)
-    
+
     if not filters:
         return {"error": "At least one filter condition is required"}
-    
+
     # Use the filtered tickets API endpoint
     url = f"https://{FRESHDESK_DOMAIN}/api/_/tickets"
-    
+
     # Build query parameters
     params = {
         "page": page,
@@ -349,13 +349,13 @@ async def filter_tickets(
         "exclude": exclude,
         "include": include
     }
-    
+
     # Add query_hash parameters
     for idx, filter_condition in enumerate(filters):
         params[f"query_hash[{idx}][condition]"] = filter_condition.get("condition")
         params[f"query_hash[{idx}][operator]"] = filter_condition.get("operator")
         params[f"query_hash[{idx}][type]"] = filter_condition.get("type", "default")
-        
+
         # Handle value - could be single value or array
         value = filter_condition.get("value")
         if isinstance(value, list):
@@ -363,18 +363,18 @@ async def filter_tickets(
                 params[f"query_hash[{idx}][value][{val_idx}]"] = val
         else:
             params[f"query_hash[{idx}][value]"] = value
-    
+
     headers = _get_auth_headers()
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(url, headers=headers, params=params)
             response.raise_for_status()
-            
+
             # Parse pagination from Link header
             link_header = response.headers.get('Link', '')
             pagination_info = parse_link_header(link_header)
-            
+
             tickets = response.json()
 
             return {
@@ -414,29 +414,29 @@ async def get_ticket(ticket_id: int):
 @mcp.tool()
 async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
     """Find similar tickets using Freshdesk Copilot AI.
-    
+
     This tool uses the Copilot API to find tickets similar to the given ticket ID.
     It returns tickets with AI-generated summaries, resolution details, and confidence scores.
-    
+
     Args:
         ticket_id: The ID of the ticket to find similar tickets for
-    
+
     Returns:
         Dictionary with similar_tickets array containing:
-    
+
     Example:
         # Find similar tickets for ticket 12345
         result = await find_similar_tickets(ticket_id=12345)
     """
     if not ticket_id or ticket_id < 1:
         return {"error": "Invalid ticket_id. Must be a positive integer."}
-    
+
     url = f"https://{FRESHDESK_DOMAIN}/api/_/copilot/tickets/{ticket_id}/similar_tickets"
     headers = _get_auth_headers()
 
     async with httpx.AsyncClient() as client:
         try:
-        response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -475,13 +475,13 @@ async def search_agents(query: str) -> list[Dict[str, Any]]:
 @mcp.tool()
 async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
     """Get all unresolved tickets assigned to me.
-    
+
     This tool automatically fetches the current user's agent ID and filters
     for unresolved tickets (status 0) assigned to them.
-    
+
     Returns:
         Dictionary with tickets and pagination information
-    
+
     Example:
         # Get my unresolved tickets
         result = await get_unresolved_tickets_assigned_to_me()
@@ -490,7 +490,7 @@ async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
     assignee_id = await _get_current_agent_id()
     if not assignee_id:
         return {"error": "Could not fetch current agent ID"}
-    
+
     # Build query_hash for unresolved status
     query_hash = [
         {
@@ -506,7 +506,7 @@ async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
             "value": [assignee_id]
         }
     ]
-    
+
     # Call filter_tickets with the query_hash
     return await filter_tickets(
         query_hash=query_hash,
@@ -521,35 +521,35 @@ async def get_unresolved_tickets_assigned_to_agent(
     assignee_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """Get all unresolved tickets assigned to a specific agent.
-    
+
     This tool filters tickets by status (unresolved) and assignee.
     Either assignee_name or assignee_id must be provided.
-    
+
     Args:
         assignee_name: Agent name or email (will be resolved to responder_id).
         assignee_id: Direct agent ID (responder_id) to filter by
-    
+
     Returns:
         Dictionary with tickets and pagination information
-    
+
     Example:
         # Get unresolved tickets by name
         result = await get_unresolved_tickets_assigned_to_agent(assignee_name="John Doe")
-        
+
         # Get unresolved tickets by ID
         result = await get_unresolved_tickets_assigned_to_agent(assignee_id=50000560730)
     """
     # Validate that we have an assignee identifier
     if not assignee_name and not assignee_id:
         return {"error": "Either assignee_name or assignee_id must be provided"}
-    
+
     # Resolve assignee name to ID if needed
     if assignee_name:
         resolved_id = await _resolve_agent_name_to_id(assignee_name)
         if not resolved_id:
             return {"error": f"Could not resolve assignee name: {assignee_name}"}
         assignee_id = resolved_id
-    
+
     # Build query_hash for unresolved status
     query_hash = [
         {
@@ -565,7 +565,7 @@ async def get_unresolved_tickets_assigned_to_agent(
             "value": [assignee_id]
         }
     ]
-    
+
     # Call filter_tickets with the query_hash
     return await filter_tickets(
         query_hash=query_hash,
@@ -581,20 +581,20 @@ async def get_unresolved_tickets_by_squad(
     per_page: Optional[int] = PaginationDefaults.PER_PAGE,
 ) -> Dict[str, Any]:
     """Get all unresolved tickets assigned to a squad in L2 Teams.
-    
+
     This tool filters tickets by status for L2 Teams squad members.
     By default, it filters for unresolved (0).
-    
+
     Args:
         squad: Squad member name (required). This is a custom field filter.
         page: Page number (default: 1)
         per_page: Results per page (default: 100, max: 100)
-    
+
     Note: Always filters for unresolved status (0).
-    
+
     Returns:
         Dictionary with tickets and pagination information
-    
+
     Example:
         # Get unresolved tickets for a squad member
         result = await get_unresolved_tickets_by_squad(squad="Dracarys")
@@ -621,7 +621,7 @@ async def get_unresolved_tickets_by_squad(
             "value": [squad]
         }
     ]
-    
+
     # Call filter_tickets with the query_hash
     return await filter_tickets(
         query_hash=query_hash,

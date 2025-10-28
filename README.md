@@ -3,12 +3,6 @@
 A Model Context Protocol (MCP) server for interacting with the Freshdesk API.
 
 ## Features
-
-- Ticket management (CRUD operations)
-- Contact and company management
-- Agent management
-- Solution articles and knowledge base
-- Canned responses
 - **Advanced ticket filtering with assignee name support** (NEW!)
 - **Get unresolved tickets assigned to me** (NEW!)
 - **Get current user's agent ID** (NEW!)
@@ -115,13 +109,6 @@ await get_unresolved_tickets(assignee_id=50000560730, status=[2, 3])  # Open and
 # Get unresolved tickets for the current user
 await get_unresolved_tickets
 ```
-
-By default, it filters for New status (0). Status values:
-- 0 = New
-- 2 = Open
-- 3 = Pending
-- 4 = Resolved
-- 5 = Closed
 
 ### Get Current Agent ID
 

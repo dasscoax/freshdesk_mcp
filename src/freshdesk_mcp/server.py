@@ -39,15 +39,6 @@ class TicketStatus(IntEnum):
     OPEN = 2
     PENDING = 3
     RESOLVED = 4
-    AWAITING_L2_RESPONSE = 10
-
-
-class PaginationDefaults(IntEnum):
-    """Default pagination values"""
-    PAGE = 1
-    PER_PAGE = 100
-    MAX_PER_PAGE = 100
-    MIN_PER_PAGE = 1
 
 
 class TicketPriority(IntEnum):
@@ -110,9 +101,9 @@ async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
     async with httpx.AsyncClient() as client:
         try:
             # Search through agents
-            page = PaginationDefaults.PAGE
-            while page < PaginationDefaults.MAX_PER_PAGE:  # Prevent infinite loop
-                params = {"page": page, "per_page": PaginationDefaults.PER_PAGE}
+            page = 1
+            while page < 100:  # Prevent infinite loop
+                params = {"page": page, "per_page": 100}
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 agents = response.json()
@@ -168,14 +159,14 @@ async def _get_current_agent_id() -> Optional[int]:
 
 
 @mcp.tool()
-async def get_tickets(page: Optional[int] = PaginationDefaults.PAGE, per_page: Optional[int] = 30) -> Dict[str, Any]:
+async def get_tickets(page: Optional[int] = 1, per_page: Optional[int] = 30) -> Dict[str, Any]:
     """Get tickets from Freshdesk with pagination support."""
     # Validate input parameters
-    if page < PaginationDefaults.MIN_PER_PAGE:
-        return {"error": f"Page number must be greater than or equal to {PaginationDefaults.MIN_PER_PAGE}"}
+    if page < 1:
+        return {"error": f"Page number must be greater than or equal to 1"}
 
-    if per_page < PaginationDefaults.MIN_PER_PAGE or per_page > PaginationDefaults.MAX_PER_PAGE:
-        return {"error": f"Page size must be between {PaginationDefaults.MIN_PER_PAGE} and {PaginationDefaults.MAX_PER_PAGE}"}
+    if per_page < 1 or per_page > 100:
+        return {"error": f"Page size must be between 1 and 100"}
 
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets"
 
@@ -218,8 +209,8 @@ async def filter_tickets(
     assignee_name: Optional[str] = None,
     status: Optional[Union[int, str]] = None,
     priority: Optional[Union[int, str]] = None,
-    page: Optional[int] = PaginationDefaults.PAGE,
-    per_page: Optional[int] = PaginationDefaults.PER_PAGE,
+    page: Optional[int] = 1,
+    per_page: Optional[int] = 100,
     order_by: Optional[str] = "created_at",
     order_type: Optional[str] = "desc",
     exclude: Optional[str] = "custom_fields",
@@ -290,11 +281,11 @@ async def filter_tickets(
         ]
     """
     # Validate input parameters
-    if page < PaginationDefaults.MIN_PER_PAGE:
-        return {"error": f"Page number must be greater than or equal to {PaginationDefaults.MIN_PER_PAGE}"}
+    if page < 1:
+        return {"error": f"Page number must be greater than or equal to 1"}
 
-    if per_page < PaginationDefaults.MIN_PER_PAGE or per_page > PaginationDefaults.MAX_PER_PAGE:
-        return {"error": f"Page size must be between {PaginationDefaults.MIN_PER_PAGE} and {PaginationDefaults.MAX_PER_PAGE}"}
+    if per_page < 1 or per_page > 100:
+        return {"error": f"Page size must be between 1 and 100"}
 
     # Build query_hash if using helper parameters
     filters = []
@@ -500,7 +491,7 @@ async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
             "condition": "status",
             "operator": "is_in",
             "type": "default",
-            "value": [TicketStatus.UNRESOLVED.value]
+            "value": [0]
         },
         {
             "condition": "responder_id",
@@ -513,8 +504,8 @@ async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
     # Call filter_tickets with the query_hash
     return await filter_tickets(
         query_hash=query_hash,
-        page=PaginationDefaults.PAGE,
-        per_page=PaginationDefaults.PER_PAGE
+        page=1,
+        per_page=100
     )
 
 
@@ -562,7 +553,7 @@ async def get_unresolved_tickets_for_agent(
             "condition": "status",
             "operator": "is_in",
             "type": "default",
-            "value": [TicketStatus.UNRESOLVED.value]
+            "value": [0]
         },
         {
             "condition": "responder_id",
@@ -575,16 +566,16 @@ async def get_unresolved_tickets_for_agent(
     # Call filter_tickets with the query_hash
     return await filter_tickets(
         query_hash=query_hash,
-        page=PaginationDefaults.PAGE,
-        per_page=PaginationDefaults.PER_PAGE
+        page=1,
+        per_page=100
     )
 
 
 @mcp.tool()
 async def get_unresolved_tickets_in_a_squad(
     squad: Optional[str] = None,
-    page: Optional[int] = PaginationDefaults.PAGE,
-    per_page: Optional[int] = PaginationDefaults.PER_PAGE,
+    page: Optional[int] = 1,
+    per_page: Optional[int] = 100,
 ) -> Dict[str, Any]:
     """Get unresolved tickets in a squad
 
@@ -611,7 +602,7 @@ async def get_unresolved_tickets_in_a_squad(
             "condition": "status",
             "operator": "is_in",
             "type": "default",
-            "value": [TicketStatus.UNRESOLVED.value]
+            "value": [0]
         },
         {
             "condition": "freshservice_teams",

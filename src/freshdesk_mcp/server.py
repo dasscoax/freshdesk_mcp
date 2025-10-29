@@ -109,57 +109,6 @@ def parse_link_header(link_header: str) -> Dict[str, Optional[int]]:
 
     return pagination
 
-
-async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
-    """Helper function to resolve agent name to agent ID."""
-    if not agent_name:
-        return None
-
-    # First, try to check if it's already a numeric ID
-    try:
-        return int(agent_name)
-    except ValueError:
-        pass
-
-    # Search for agents with the given name
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/agents"
-    headers = _get_auth_headers()
-
-    async with httpx.AsyncClient() as client:
-        try:
-            # Search through agents
-            page = 1
-            while page < 100:  # Prevent infinite loop
-                params = {"page": page, "per_page": 100}
-                response = await client.get(url, headers=headers, params=params)
-                response.raise_for_status()
-                agents = response.json()
-
-                if not agents:
-                    break
-
-                # Search for matching name or email
-                for agent in agents:
-                    if (agent.get("contact", {}).get("name") and
-                        agent_name.lower() in agent["contact"]["name"].lower()):
-                        return agent["id"]
-                    if (agent.get("contact", {}).get("email") and
-                        agent_name.lower() in agent["contact"]["email"].lower()):
-                        return agent["id"]
-
-                # Check for next page
-                link_header = response.headers.get('Link', '')
-                pagination_info = parse_link_header(link_header)
-                if pagination_info.get("next"):
-                    page = pagination_info.get("next")
-                else:
-                    break
-        except Exception as e:
-            logging.error(f"Error resolving agent name: {str(e)}")
-
-    return None
-
-
 async def _resolve_agent_id_to_name(responder_id: int) -> Optional[str]:
     """Helper function to resolve responder ID to agent name.
     
@@ -505,16 +454,6 @@ async def search_tickets(ticket_id: Optional[int] = None, query: Optional[str] =
     params = {"query": query}
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers, params=params)
-        return response.json()
-
-async def search_agents(query: str) -> list[Dict[str, Any]]:
-    """Search for agents in Freshdesk."""
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/agents/autocomplete?term={query}"
-    headers = {
-        "Authorization": f"Basic {base64.b64encode(f'{FRESHDESK_API_KEY}:X'.encode()).decode()}"
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
         return response.json()
 
 @mcp.tool()

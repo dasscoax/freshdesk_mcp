@@ -49,6 +49,33 @@ class TicketPriority(IntEnum):
     URGENT = 4
 
 
+def _get_status_name(status_id: Optional[int]) -> str:
+    """Convert status ID to readable name."""
+    if status_id is None:
+        return "Unknown"
+    status_map = {
+        0: "Unresolved",
+        2: "Open",
+        3: "Pending",
+        4: "Resolved",
+        5: "Closed"
+    }
+    return status_map.get(status_id, f"Unknown ({status_id})")
+
+
+def _get_priority_name(priority_id: Optional[int]) -> str:
+    """Convert priority ID to readable name."""
+    if priority_id is None:
+        return "Unknown"
+    priority_map = {
+        1: "Low",
+        2: "Medium",
+        3: "High",
+        4: "Urgent"
+    }
+    return priority_map.get(priority_id, f"Unknown ({priority_id})")
+
+
 def parse_link_header(link_header: str) -> Dict[str, Optional[int]]:
     """Parse the Link header to extract pagination information.
 
@@ -133,6 +160,41 @@ async def _resolve_agent_name_to_id(agent_name: str) -> Optional[int]:
     return None
 
 
+async def _resolve_agent_id_to_name(responder_id: int) -> Optional[str]:
+    """Helper function to resolve responder ID to agent name.
+    
+    Args:
+        responder_id: The agent/responder ID to resolve
+        
+    Returns:
+        Agent name if found, None otherwise
+    """
+    if not responder_id:
+        return None
+    
+    url = f"https://{FRESHDESK_DOMAIN}/api/agents/{responder_id}"
+    headers = _get_auth_headers()
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract name from agent.user.name
+            agent = data.get("agent", {})
+            user = agent.get("user", {})
+            name = user.get("name")
+            
+            return name if name else None
+        except httpx.HTTPStatusError as e:
+            logging.error(f"Error resolving agent ID {responder_id}: {str(e)}")
+        except Exception as e:
+            logging.error(f"Error resolving agent ID {responder_id}: {str(e)}")
+    
+    return None
+
+
 async def _get_current_agent_id() -> Optional[int]:
     """Helper function to get the current logged-in agent's ID.
 
@@ -159,20 +221,14 @@ async def _get_current_agent_id() -> Optional[int]:
 
 
 @mcp.tool()
-async def get_tickets(page: Optional[int] = 1, per_page: Optional[int] = 30) -> Dict[str, Any]:
-    """Get tickets from Freshdesk with pagination support."""
-    # Validate input parameters
-    if page < 1:
-        return {"error": f"Page number must be greater than or equal to 1"}
-
-    if per_page < 1 or per_page > 100:
-        return {"error": f"Page size must be between 1 and 100"}
+async def get_tickets() -> Dict[str, Any]:
+    """Get all tickets in freshdesk"""
 
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets"
 
     params = {
-        "page": page,
-        "per_page": per_page
+        "page": 1,
+        "per_page": 30
     }
 
     headers = _get_auth_headers()
@@ -191,10 +247,10 @@ async def get_tickets(page: Optional[int] = 1, per_page: Optional[int] = 30) -> 
             return {
                 "tickets": tickets,
                 "pagination": {
-                    "current_page": page,
+                    "current_page": 1,
                     "next_page": pagination_info.get("next"),
                     "prev_page": pagination_info.get("prev"),
-                    "per_page": per_page
+                    "per_page": 30
                 }
             }
 
@@ -206,11 +262,11 @@ async def get_tickets(page: Optional[int] = 1, per_page: Optional[int] = 30) -> 
 
 async def filter_tickets(
     query_hash: Optional[List[Dict[str, Any]]] = None,
-    assignee_name: Optional[str] = None,
+    responder_id: Optional[str] = None,
     status: Optional[Union[int, str]] = None,
     priority: Optional[Union[int, str]] = None,
     page: Optional[int] = 1,
-    per_page: Optional[int] = 100,
+    per_page: Optional[int] = 30,
     order_by: Optional[str] = "created_at",
     order_type: Optional[str] = "desc",
     exclude: Optional[str] = "custom_fields",
@@ -220,7 +276,7 @@ async def filter_tickets(
 
     This tool supports advanced filtering using either:
     1. Native query_hash format (array of condition objects)
-    2. Helper parameters like assignee_name, status, priority (automatically converted to query_hash)
+    2. Helper parameters like responder_id, status, priority (automatically converted to query_hash)
 
     Args:
         query_hash: List of filter conditions in native Freshdesk format. Each condition has:
@@ -228,11 +284,11 @@ async def filter_tickets(
             - operator: Comparison operator (e.g., "is_in", "is", "greater_than")
             - type: "default" or "custom_field"
             - value: Value(s) to match (can be array for "is_in")
-        assignee_name: Filter by assignee name or email (will be resolved to responder_id)
+        responder_id: Filter by assignee ID (will be added to query_hash)
         status: Filter by status (will be added to query_hash)
         priority: Filter by priority (will be added to query_hash)
         page: Page number (default: 1)
-        per_page: Results per page (default: 100)
+        per_page: Results per page (default: 30)
         order_by: Field to sort by (default: "created_at")
         order_type: Sort direction - "asc" or "desc" (default: "desc")
         exclude: Fields to exclude from response (default: "custom_fields")
@@ -290,18 +346,16 @@ async def filter_tickets(
     # Build query_hash if using helper parameters
     filters = []
 
-    # Resolve assignee name to ID if provided
-    if assignee_name:
-        assignee_id = await _resolve_agent_name_to_id(assignee_name)
-        if assignee_id:
+    # Resolve responder_id
+    if responder_id:
             filters.append({
                 "condition": "responder_id",
                 "operator": "is_in",
                 "type": "default",
-                "value": [assignee_id]
+                "value": [responder_id]
             })
-        else:
-            return {"error": f"Could not resolve assignee name: {assignee_name}"}
+    else:
+            return {"error": f"Could not resolve responder details"}
 
     # Add status filter if provided
     if status is not None:
@@ -393,8 +447,8 @@ async def filter_tickets(
 
 @mcp.tool()
 async def get_ticket(ticket_id: int):
-    """Get a ticket in Freshdesk."""
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets/{ticket_id}"
+    """Get a ticket details by ticket ID"""
+    url = f"https://{FRESHDESK_DOMAIN}/api/tickets/{ticket_id}"
     headers = _get_auth_headers()
 
     async with httpx.AsyncClient() as client:
@@ -438,7 +492,7 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 
 @mcp.tool()
 async def search_tickets(ticket_id: Optional[int] = None, query: Optional[str] = None):
-    """Search for tickets in Freshdesk using text search."""
+    """Search for tickets using text search by ticket ID or query text."""
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
     headers = {
         "Authorization": f"Basic {base64.b64encode(f'{FRESHDESK_API_KEY}:X'.encode()).decode()}"
@@ -464,21 +518,28 @@ async def search_agents(query: str) -> list[Dict[str, Any]]:
         return response.json()
 
 @mcp.tool()
-async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
-    """Get all unresolved tickets assigned to me (the current user).
+async def my_unresolved_tickets() -> Dict[str, Any]:
+    """My unresolved tickets
 
     This tool automatically fetches the current user's agent ID and filters
     for unresolved tickets (status 0) assigned to them.
     
     Use this when you need to see tickets assigned to the current authenticated user.
-    This is the best tool for queries like "tickets assigned to me", "my tickets", etc.
+    This is the best tool for queries like:
+    - "my tickets"
+    - "my resolved tickets" 
+    - "Get my tickets"
+    - "get all my tickets"
+    - "Get my unresolved tickets"
+    - "tickets assigned to me"
+    - Any query asking about the current user's tickets
 
     Returns:
         Dictionary with tickets and pagination information
 
     Example:
         # Get my unresolved tickets
-        result = await get_unresolved_tickets_assigned_to_me()
+        result = await my_unresolved_tickets()
     """
     # Get current user's agent ID
     assignee_id = await _get_current_agent_id()
@@ -502,89 +563,74 @@ async def get_unresolved_tickets_assigned_to_me() -> Dict[str, Any]:
     ]
 
     # Call filter_tickets with the query_hash
-    return await filter_tickets(
+    result = await filter_tickets(
         query_hash=query_hash,
         page=1,
-        per_page=100
+        per_page=30
     )
-
-
-@mcp.tool()
-async def get_unresolved_tickets_for_agent(
-    assignee_name: Optional[str] = None,
-    assignee_id: Optional[int] = None
-) -> Dict[str, Any]:
-    """Get unresolved tickets assigned to a specific agent (by name or ID).
-
-    This tool filters tickets by status (unresolved) and assignee.
-    Either assignee_name or assignee_id must be provided.
     
-    Use this when you need to see tickets assigned to another agent, not the current user.
-    For tickets assigned to the current user, use get_unresolved_tickets_assigned_to_me instead.
-
-    Args:
-        assignee_name: Agent name or email (will be resolved to responder_id).
-        assignee_id: Direct agent ID (responder_id) to filter by
-
-    Returns:
-        Dictionary with tickets and pagination information
-
-    Example:
-        # Get unresolved tickets by name
-        result = await get_unresolved_tickets_assigned_to_agent(assignee_name="John Doe")
-
-        # Get unresolved tickets by ID
-        result = await get_unresolved_tickets_assigned_to_agent(assignee_id=123)
-    """
-    # Validate that we have an assignee identifier
-    if not assignee_name and not assignee_id:
-        return {"error": "Either assignee_name or assignee_id must be provided"}
-
-    # Resolve assignee name to ID if needed
-    if assignee_name:
-        resolved_id = await _resolve_agent_name_to_id(assignee_name)
-        if not resolved_id:
-            return {"error": f"Could not resolve assignee name: {assignee_name}"}
-        assignee_id = resolved_id
-
-    # Build query_hash for unresolved status
-    query_hash = [
-        {
-            "condition": "status",
-            "operator": "is_in",
-            "type": "default",
-            "value": [0]
-        },
-        {
-            "condition": "responder_id",
-            "operator": "is_in",
-            "type": "default",
-            "value": [assignee_id]
+    # Check if there was an error
+    if "error" in result:
+        return result
+    
+    # Format tickets with URLs and readable structure
+    formatted_tickets = []
+    tickets = result.get("tickets", [])
+    
+    for ticket in tickets:
+        ticket_id = ticket.get("id")
+        ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
+        
+        status_id = ticket.get("status")
+        priority_id = ticket.get("priority")
+        
+        formatted_ticket = {
+            "url": ticket_url,
+            "subject": ticket.get("subject", "No subject"),
+            "status": _get_status_name(status_id),
+            "priority": _get_priority_name(priority_id),
+            "resolution_due_by": ticket.get("due_by", "") 
         }
-    ]
-
-    # Call filter_tickets with the query_hash
-    return await filter_tickets(
-        query_hash=query_hash,
-        page=1,
-        per_page=100
-    )
-
+        
+        # Only include fr_due_by if it exists
+        if ticket.get("fr_due_by"):
+            formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+            
+        formatted_tickets.append(formatted_ticket)
+    
+    # Build readable summary
+    readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
+    
+    # Create formatted response
+    return {
+        "summary": readable_summary,
+        "ticket_count": len(formatted_tickets),
+        "tickets": formatted_tickets,
+        "pagination": result.get("pagination", {}),
+        "raw_tickets": tickets  # Include raw data for detailed access if needed
+    }
 
 @mcp.tool()
-async def get_unresolved_tickets_in_a_squad(
-    squad: Optional[str] = None,
-    page: Optional[int] = 1,
-    per_page: Optional[int] = 100,
+async def get_all_unresolved_tickets_in_a_squad(
+    squad: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Get unresolved tickets in a squad
+    """Get all unresolved tickets in a squad
 
     By default, it filters for unresolved (0).
+
+    Use this tool for queries like:
+    - "all unresolved tickets in my squad"
+    - "my team"
+    - "team"
+    - "open tickets in team"
+    - "open tickets in squad"
+    - "squad"
+    - Any query asking about tickets in a squad or team
 
     Args:
         squad: Squad member name (required). This is a custom field filter.
         page: Page number (default: 1)
-        per_page: Results per page (default: 100, max: 100)
+        per_page: Results per page (default: 30, max: 30)
 
     Note: Always filters for unresolved status (0).
 
@@ -593,7 +639,7 @@ async def get_unresolved_tickets_in_a_squad(
 
     Example:
         # Get unresolved tickets for a squad member
-        result = await get_unresolved_tickets_by_squad(squad="Dracarys")
+        result = await get_all_unresolved_tickets_in_a_squad(squad="Dracarys")
     """
     # Build query_hash with team filters
     # Always filter by L2 Teams and unresolved status
@@ -619,15 +665,67 @@ async def get_unresolved_tickets_in_a_squad(
     ]
 
     # Call filter_tickets with the query_hash
-    return await filter_tickets(
+    result = await filter_tickets(
         query_hash=query_hash,
-        page=page,
-        per_page=per_page
+        page=1,
+        per_page=30
     )
+    
+    # Check if there was an error
+    if "error" in result:
+        return result
+    
+    # Format tickets with URLs and readable structure
+    formatted_tickets = []
+    tickets = result.get("tickets", [])
+    
+    for ticket in tickets:
+        ticket_id = ticket.get("id")
+        ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
+        
+        status_id = ticket.get("status")
+        priority_id = ticket.get("priority")
+        
+        # Resolve responder ID to name
+        responder_id = ticket.get("responder_id")
+        responder_name = "Unassigned"
+        if responder_id:
+            resolved_name = await _resolve_agent_id_to_name(responder_id)
+            responder_name = resolved_name if resolved_name else f"Agent ID: {responder_id}"
+
+        formatted_ticket = {
+            "subject": ticket.get("subject", "No subject"),
+            "status": _get_status_name(status_id),
+            "priority": _get_priority_name(priority_id),
+            "responder": responder_name,
+            "resolution_due_by": ticket.get("due_by", ""),
+            "url": ticket_url,
+        }
+        
+        # Only include fr_due_by if it exists
+        if ticket.get("fr_due_by"):
+            formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+        
+        formatted_tickets.append(formatted_ticket)
+    
+    # Build readable summary
+    readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) in squad"
+    if squad:
+        readable_summary += f" '{squad}'"
+    readable_summary += ":"
+    
+    # Create formatted response
+    return {
+        "summary": readable_summary,
+        "ticket_count": len(formatted_tickets),
+        "tickets": formatted_tickets,
+        "pagination": result.get("pagination", {}),
+        "raw_tickets": tickets  # Include raw data for detailed access if needed
+    }
 
 
 def main():
-    logging.info("Starting Freshdesk MCP server")
+    logging.info("Starting Freshdesk MCP support server")
     mcp.run(transport='stdio')
 
 if __name__ == "__main__":

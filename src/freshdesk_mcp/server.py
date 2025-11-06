@@ -15,6 +15,7 @@ mcp = FastMCP("freshdesk-mcp")
 
 FRESHDESK_API_KEY = os.getenv("FRESHDESK_API_KEY")
 FRESHDESK_DOMAIN = os.getenv("FRESHDESK_DOMAIN")
+USER_ID = os.getenv("FRESHDESK_USER_ID")
 
 # Cache for authorization header to avoid recomputing base64 encoding
 _auth_header = None
@@ -141,31 +142,6 @@ async def _resolve_agent_id_to_name(responder_id: int) -> Optional[str]:
         except Exception as e:
             logging.error(f"Error resolving agent ID {responder_id}: {str(e)}")
     
-    return None
-
-
-async def _get_current_agent_id() -> Optional[int]:
-    """Helper function to get the current logged-in agent's ID.
-
-    Returns:
-        Agent ID of the current user, or None if unable to fetch
-    """
-    url = f"https://{FRESHDESK_DOMAIN}/api/_/bootstrap/me"
-    headers = _get_auth_headers()
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-
-            # Extract agent ID from response
-            agent = data.get("agent", {})
-            if agent and "id" in agent:
-                return agent["id"]
-        except Exception as e:
-            logging.error(f"Error fetching current agent ID: {str(e)}")
-
     return None
 
 
@@ -480,10 +456,14 @@ async def my_unresolved_tickets() -> Dict[str, Any]:
         # Get my unresolved tickets
         result = await my_unresolved_tickets()
     """
-    # Get current user's agent ID
-    assignee_id = await _get_current_agent_id()
-    if not assignee_id:
-        return {"error": "Could not fetch current agent ID"}
+    # Get current user's agent ID from environment variable
+    if not USER_ID:
+        return {"error": "FRESHDESK_USER_ID environment variable is not set"}
+    
+    try:
+        assignee_id = int(USER_ID)
+    except (ValueError, TypeError):
+        return {"error": f"FRESHDESK_USER_ID must be a valid integer, got: {USER_ID}"}
 
     # Build query_hash for unresolved status
     query_hash = [

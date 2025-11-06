@@ -271,16 +271,17 @@ async def filter_tickets(
     # Build query_hash if using helper parameters
     filters = []
 
-    # Resolve responder_id
+    # Resolve responder_id (only if query_hash is not provided)
     if responder_id:
-            filters.append({
-                "condition": "responder_id",
-                "operator": "is_in",
-                "type": "default",
-                "value": [responder_id]
-            })
-    else:
-            return {"error": f"Could not resolve responder details"}
+        filters.append({
+            "condition": "responder_id",
+            "operator": "is_in",
+            "type": "default",
+            "value": [responder_id]
+        })
+    # Only require responder_id if query_hash is not provided
+    elif not query_hash:
+        return {"error": f"Could not resolve responder details"}
 
     # Add status filter if provided
     if status is not None:

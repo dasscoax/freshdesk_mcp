@@ -2,7 +2,6 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 import logging
 import os
-import base64
 from typing import Optional, Dict, Union, Any, List
 from enum import IntEnum
 import re
@@ -17,21 +16,21 @@ FRESHDESK_API_KEY = os.getenv("FRESHDESK_API_KEY")
 FRESHDESK_DOMAIN = os.getenv("FRESHDESK_DOMAIN")
 USER_ID = os.getenv("FRESHDESK_USER_ID")
 
-# Cache for authorization header to avoid recomputing base64 encoding
-_auth_header = None
-
-
 def _get_auth_headers() -> Dict[str, str]:
-    """Get cached authentication headers."""
-    global _auth_header
-    if _auth_header is None:
-        auth_string = f'{FRESHDESK_API_KEY}:X'
-        encoded = base64.b64encode(auth_string.encode()).decode()
-        _auth_header = {
-            "Authorization": f"Basic {encoded}",
-            "Content-Type": "application/json"
-        }
-    return _auth_header.copy()
+    """Get authentication headers."""
+    return {
+        "Content-Type": "application/json"
+    }
+
+
+def _get_auth() -> tuple:
+    """Get basic auth credentials for httpx.
+    
+    Equivalent to Ruby's:
+    - authenticate_using_basic = true
+    - set_basic_auth('FRESHDESK_API_KEY', 'X')
+    """
+    return (FRESHDESK_API_KEY, 'X')
 
 
 class TicketStatus(IntEnum):
@@ -125,9 +124,9 @@ async def _resolve_agent_id_to_name(responder_id: int) -> Optional[str]:
     url = f"https://{FRESHDESK_DOMAIN}/api/agents/{responder_id}"
     headers = _get_auth_headers()
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=headers, auth=_get_auth())
             response.raise_for_status()
             data = response.json()
             
@@ -158,9 +157,9 @@ async def get_tickets() -> Dict[str, Any]:
 
     headers = _get_auth_headers()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(url, headers=headers, params=params)
+            response = await client.get(url, headers=headers, params=params, auth=_get_auth())
             response.raise_for_status()
 
             # Parse pagination from Link header
@@ -309,7 +308,7 @@ async def filter_tickets(
         return {"error": "At least one filter condition is required"}
 
     # Use the filtered tickets API endpoint
-    url = f"https://{FRESHDESK_DOMAIN}/api/_/tickets"
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets"
 
     # Build query parameters
     params = {
@@ -337,9 +336,9 @@ async def filter_tickets(
 
     headers = _get_auth_headers()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(url, headers=headers, params=params)
+            response = await client.get(url, headers=headers, params=params, auth=_get_auth())
             response.raise_for_status()
 
             # Parse pagination from Link header
@@ -377,8 +376,8 @@ async def get_ticket(ticket_id: int):
     url = f"https://{FRESHDESK_DOMAIN}/api/tickets/{ticket_id}"
     headers = _get_auth_headers()
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
+    async with httpx.AsyncClient(verify=False) as client:
+        response = await client.get(url, headers=headers, auth=_get_auth())
         return response.json()
 
 
@@ -405,9 +404,9 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
     url = f"https://{FRESHDESK_DOMAIN}/api/_/copilot/tickets/{ticket_id}/similar_tickets"
     headers = _get_auth_headers()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=headers, auth=_get_auth())
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -420,17 +419,15 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 async def search_tickets(ticket_id: Optional[int] = None, query: Optional[str] = None):
     """Search for tickets using text search by ticket ID or query text."""
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
-    headers = {
-        "Authorization": f"Basic {base64.b64encode(f'{FRESHDESK_API_KEY}:X'.encode()).decode()}"
-    }
+    headers = _get_auth_headers()
     if ticket_id is not None:
         ticket = await get_ticket(ticket_id)
         query = ticket["subject"]
     else:
         query = query
     params = {"query": query}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
+    async with httpx.AsyncClient(verify=False) as client:
+        response = await client.get(url, headers=headers, params=params, auth=_get_auth())
         return response.json()
 
 @mcp.tool()

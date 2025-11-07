@@ -308,7 +308,7 @@ async def filter_tickets(
         return {"error": "At least one filter condition is required"}
 
     # Use the filtered tickets API endpoint
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets"
+    url = f"https://{FRESHDESK_DOMAIN}/api/_/tickets"
 
     # Build query parameters
     params = {

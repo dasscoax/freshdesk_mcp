@@ -14,7 +14,6 @@ mcp = FastMCP("freshdesk-mcp")
 
 FRESHDESK_API_KEY = os.getenv("FRESHDESK_API_KEY")
 FRESHDESK_DOMAIN = os.getenv("FRESHDESK_DOMAIN")
-USER_ID = os.getenv("FRESHDESK_USER_ID")
 
 def _get_auth_headers() -> Dict[str, str]:
     """Get authentication headers."""
@@ -108,6 +107,35 @@ def parse_link_header(link_header: str) -> Dict[str, Optional[int]]:
                 pagination[rel] = page_num
 
     return pagination
+
+async def _get_current_agent_id() -> Optional[int]:
+    """Helper function to get the current user's agent ID from /api/v2/agents/me.
+    
+    Returns:
+        Agent ID (int) if found, None otherwise
+    """
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/agents/me"
+    headers = _get_auth_headers()
+    
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            response = await client.get(url, headers=headers, auth=_get_auth())
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract agent ID from response
+            agent_id = data.get("id")
+            
+            if agent_id:
+                return int(agent_id)
+            return None
+        except httpx.HTTPStatusError as e:
+            logging.error(f"Error getting current agent ID: {str(e)}")
+        except Exception as e:
+            logging.error(f"Error getting current agent ID: {str(e)}")
+    
+    return None
+
 
 async def _resolve_agent_id_to_name(responder_id: int) -> Optional[str]:
     """Helper function to resolve responder ID to agent name.
@@ -308,7 +336,7 @@ async def filter_tickets(
         return {"error": "At least one filter condition is required"}
 
     # Use the filtered tickets API endpoint
-    url = f"https://{FRESHDESK_DOMAIN}/api/_/tickets"
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
 
     # Build query parameters
     params = {
@@ -430,7 +458,6 @@ async def search_tickets(ticket_id: Optional[int] = None, query: Optional[str] =
         response = await client.get(url, headers=headers, params=params, auth=_get_auth())
         return response.json()
 
-@mcp.tool()
 async def my_unresolved_tickets() -> Dict[str, Any]:
     """My unresolved tickets
 
@@ -454,14 +481,11 @@ async def my_unresolved_tickets() -> Dict[str, Any]:
         # Get my unresolved tickets
         result = await my_unresolved_tickets()
     """
-    # Get current user's agent ID from environment variable
-    if not USER_ID:
-        return {"error": "FRESHDESK_USER_ID environment variable is not set"}
+    # Get current user's agent ID from API
+    assignee_id = await _get_current_agent_id()
     
-    try:
-        assignee_id = int(USER_ID)
-    except (ValueError, TypeError):
-        return {"error": f"FRESHDESK_USER_ID must be a valid integer, got: {USER_ID}"}
+    if assignee_id is None:
+        return {"error": "Could not get agent ID from API. Please check your authentication."}
 
     # Build query_hash for unresolved status
     query_hash = [
@@ -526,6 +550,132 @@ async def my_unresolved_tickets() -> Dict[str, Any]:
         "pagination": result.get("pagination", {}),
         "raw_tickets": tickets  # Include raw data for detailed access if needed
     }
+
+@mcp.tool()
+async def my_unresolved_tickets_v2(
+    page: Optional[int] = 1,
+    per_page: Optional[int] = 30
+) -> Dict[str, Any]:
+    """Get my unresolved tickets using v2 query API.
+
+    This tool uses the v2 search API with query parameter format to fetch
+    unresolved tickets assigned to the current user.
+
+    This is the best tool for queries like:
+    - "my tickets"
+    - "my resolved tickets" 
+    - "Get my tickets"
+    - "get all my tickets"
+    - "Get my unresolved tickets"
+    - "tickets assigned to me"
+    - Any query asking about the current user's tickets
+    
+    Query format: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
+    This includes Open (2), Pending (3), and any status greater than 6.
+    
+    The agent ID is automatically fetched from /api/v2/agents/me endpoint.
+
+    Args:
+        page: Page number (default: 1)
+        per_page: Results per page (default: 30, max: 100)
+
+    Returns:
+        Dictionary with tickets and pagination information
+
+    Example:
+        # Get my unresolved tickets using v2 API
+        result = await my_unresolved_tickets_v2()
+    """
+    # Get current user's agent ID from API
+    agent_id = await _get_current_agent_id()
+    
+    if agent_id is None:
+        return {"error": "Could not get agent ID from API. Please check your authentication."}
+
+    # Validate pagination parameters
+    if page < 1:
+        return {"error": "Page number must be greater than or equal to 1"}
+
+    if per_page < 1 or per_page > 100:
+        return {"error": "Page size must be between 1 and 100"}
+
+    # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
+    query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
+
+    # Use the v2 search API with query parameter
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
+
+    # Build query parameters
+    params = {
+        "query": query,
+        "page": page,
+        "per_page": per_page
+    }
+
+    headers = _get_auth_headers()
+
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            response = await client.get(url, headers=headers, params=params, auth=_get_auth())
+            response.raise_for_status()
+
+            # Parse pagination from Link header
+            link_header = response.headers.get('Link', '')
+            pagination_info = parse_link_header(link_header)
+
+            tickets = response.json()
+
+            # Format tickets with URLs and readable structure
+            formatted_tickets = []
+            for ticket in tickets:
+                ticket_id = ticket.get("id")
+                ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
+                
+                status_id = ticket.get("status")
+                priority_id = ticket.get("priority")
+                
+                formatted_ticket = {
+                    "url": ticket_url,
+                    "subject": ticket.get("subject", "No subject"),
+                    "status": _get_status_name(status_id),
+                    "priority": _get_priority_name(priority_id),
+                    "resolution_due_by": ticket.get("due_by", "") 
+                }
+                
+                # Only include fr_due_by if it exists
+                if ticket.get("fr_due_by"):
+                    formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+                    
+                formatted_tickets.append(formatted_ticket)
+
+            # Build readable summary
+            readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
+
+            return {
+                "summary": readable_summary,
+                "ticket_count": len(formatted_tickets),
+                "tickets": formatted_tickets,
+                "pagination": {
+                    "current_page": page,
+                    "next_page": pagination_info.get("next"),
+                    "prev_page": pagination_info.get("prev"),
+                    "per_page": per_page
+                },
+                "raw_tickets": tickets,  # Include raw data for detailed access if needed
+                "query_used": query
+            }
+
+        except httpx.HTTPStatusError as e:
+            error_details = f"Failed to fetch unresolved tickets: {str(e)}"
+            try:
+                if e.response:
+                    error_details += f" - {e.response.json()}"
+            except:
+                pass
+            return {"error": error_details}
+        except Exception as e:
+            return {"error": f"An unexpected error occurred: {str(e)}"}
+
 
 @mcp.tool()
 async def get_all_unresolved_tickets_in_a_squad(

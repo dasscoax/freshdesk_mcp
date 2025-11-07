@@ -52,6 +52,9 @@ def _get_status_name(status_id: Optional[int]) -> str:
     """Convert status ID to readable name."""
     if status_id is None:
         return "Unknown"
+    # Status IDs 6-39 are "In Progress"
+    if 6 <= status_id <= 39:
+        return "Custom Status"
     status_map = {
         0: "Unresolved",
         2: "Open",
@@ -553,8 +556,7 @@ async def my_unresolved_tickets() -> Dict[str, Any]:
 
 @mcp.tool()
 async def my_unresolved_tickets_v2(
-    page: Optional[int] = 1,
-    per_page: Optional[int] = 30
+    page: Optional[int] = 1
 ) -> Dict[str, Any]:
     """Get my unresolved tickets using v2 query API.
 
@@ -577,7 +579,6 @@ async def my_unresolved_tickets_v2(
 
     Args:
         page: Page number (default: 1)
-        per_page: Results per page (default: 30, max: 100)
 
     Returns:
         Dictionary with tickets and pagination information
@@ -596,9 +597,6 @@ async def my_unresolved_tickets_v2(
     if page < 1:
         return {"error": "Page number must be greater than or equal to 1"}
 
-    if per_page < 1 or per_page > 100:
-        return {"error": "Page size must be between 1 and 100"}
-
     # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
     query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
 
@@ -608,8 +606,7 @@ async def my_unresolved_tickets_v2(
     # Build query parameters
     params = {
         "query": query,
-        "page": page,
-        "per_page": per_page
+        "page": page
     }
 
     headers = _get_auth_headers()
@@ -621,7 +618,6 @@ async def my_unresolved_tickets_v2(
 
             # Parse pagination from Link header
             link_header = response.headers.get('Link', '')
-            pagination_info = parse_link_header(link_header)
 
             tickets = response.json()
 
@@ -635,6 +631,7 @@ async def my_unresolved_tickets_v2(
                 priority_id = ticket.get("priority")
                 
                 formatted_ticket = {
+                    "ticket id": ticket_id,
                     "url": ticket_url,
                     "subject": ticket.get("subject", "No subject"),
                     "status": _get_status_name(status_id),
@@ -656,13 +653,9 @@ async def my_unresolved_tickets_v2(
                 "ticket_count": len(formatted_tickets),
                 "tickets": formatted_tickets,
                 "pagination": {
-                    "current_page": page,
-                    "next_page": pagination_info.get("next"),
-                    "prev_page": pagination_info.get("prev"),
-                    "per_page": per_page
+                    "current_page": page
                 },
-                "raw_tickets": tickets,  # Include raw data for detailed access if needed
-                "query_used": query
+                "raw_tickets": tickets
             }
 
         except httpx.HTTPStatusError as e:

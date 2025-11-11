@@ -448,28 +448,19 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 
 @mcp.tool()
 async def search_tickets(
-    ticket_id: Optional[int] = None, 
-    query: Optional[str] = None,
-    term: Optional[str] = None,
-    context: Optional[str] = "spotlight",
-    search_sort: Optional[str] = "relevance",
-    filter_params: Optional[Dict[str, Any]] = None
+    ticket_id: Optional[int] = None,
+    search_value: Optional[str] = None
 ) -> Dict[str, Any]:
     """Search for tickets using text search by ticket ID or query text.
     
-    Uses POST request with JSON body format:
-    - context: Search context (default: "spotlight")
-    - term: Search term
-    - search_sort: Sort order (default: "relevance")
-    - filter_params: Additional filter parameters (dict)
+    Uses POST request with JSON body format with default values:
+    - context: "spotlight" (default)
+    - search_sort: "relevance" (default)
+    - filter_params: {} (default)
     
     Args:
         ticket_id: Optional ticket ID to search by (will use ticket subject as term)
-        query: Search query (will be used as term)
-        term: Search term
-        context: Search context (default: "spotlight")
-        search_sort: Sort order - "relevance" or other options (default: "relevance")
-        filter_params: Additional filter parameters as dictionary (default: {})
+        search_value: Search value
     
     Returns:
         Dictionary with search results
@@ -482,22 +473,20 @@ async def search_tickets(
     if ticket_id is not None:
         ticket = await get_ticket(ticket_id)
         search_term = ticket.get("subject", "")
-    elif term:
-        search_term = term
-    elif query:
-        search_term = query
+    elif search_value:
+        search_term = search_value
     
     if not search_term:
-        return {"error": "Either ticket_id, query, or term must be provided"}
+        return {"error": "Either ticket_id, search_value must be provided"}
     
     async with httpx.AsyncClient(verify=False) as client:
         try:
-            # Always use POST with JSON body format
+            # Always use POST with JSON body format with default values
             payload = {
-                "context": context,
+                "context": "spotlight",
                 "term": search_term,
-                "search_sort": search_sort,
-                "filter_params": filter_params or {}
+                "search_sort": "relevance",
+                "filter_params": {}
             }
             response = await client.post(url, headers=headers, json=payload, auth=_get_auth())
             response.raise_for_status()

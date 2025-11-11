@@ -447,19 +447,71 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def search_tickets(ticket_id: Optional[int] = None, query: Optional[str] = None):
-    """Search for tickets using text search by ticket ID or query text."""
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
+async def search_tickets(
+    ticket_id: Optional[int] = None, 
+    query: Optional[str] = None,
+    term: Optional[str] = None,
+    context: Optional[str] = "spotlight",
+    search_sort: Optional[str] = "relevance",
+    filter_params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Search for tickets using text search by ticket ID or query text.
+    
+    Uses POST request with JSON body format:
+    - context: Search context (default: "spotlight")
+    - term: Search term
+    - search_sort: Sort order (default: "relevance")
+    - filter_params: Additional filter parameters (dict)
+    
+    Args:
+        ticket_id: Optional ticket ID to search by (will use ticket subject as term)
+        query: Search query (will be used as term)
+        term: Search term
+        context: Search context (default: "spotlight")
+        search_sort: Sort order - "relevance" or other options (default: "relevance")
+        filter_params: Additional filter parameters as dictionary (default: {})
+    
+    Returns:
+        Dictionary with search results
+    """
+    url = f"https://{FRESHDESK_DOMAIN}/api/_/search/tickets"
     headers = _get_auth_headers()
+    
+    # Determine search term
+    search_term = None
     if ticket_id is not None:
         ticket = await get_ticket(ticket_id)
-        query = ticket["subject"]
-    else:
-        query = query
-    params = {"query": query}
+        search_term = ticket.get("subject", "")
+    elif term:
+        search_term = term
+    elif query:
+        search_term = query
+    
+    if not search_term:
+        return {"error": "Either ticket_id, query, or term must be provided"}
+    
     async with httpx.AsyncClient(verify=False) as client:
-        response = await client.get(url, headers=headers, params=params, auth=_get_auth())
-        return response.json()
+        try:
+            # Always use POST with JSON body format
+            payload = {
+                "context": context,
+                "term": search_term,
+                "search_sort": search_sort,
+                "filter_params": filter_params or {}
+            }
+            response = await client.post(url, headers=headers, json=payload, auth=_get_auth())
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_details = f"Failed to search tickets: {str(e)}"
+            try:
+                if e.response:
+                    error_details += f" - {e.response.json()}"
+            except:
+                pass
+            return {"error": error_details}
+        except Exception as e:
+            return {"error": f"An unexpected error occurred: {str(e)}"}
 
 async def my_unresolved_tickets() -> Dict[str, Any]:
     """My unresolved tickets
@@ -572,9 +624,8 @@ async def my_unresolved_tickets_v2(
     - "tickets assigned to me"
     - Any query asking about the current user's tickets
     
-    Query format: agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6
+    Query format: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
     This includes Open (2), Pending (3), and any status greater than 6.
-    Note: Uses multiple AND conditions instead of parentheses as the API doesn't support parentheses in query format.
     
     The agent ID is automatically fetched from /api/v2/agents/me endpoint.
 
@@ -598,9 +649,8 @@ async def my_unresolved_tickets_v2(
     if page < 1:
         return {"error": "Page number must be greater than or equal to 1"}
 
-    # Build query string: agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6
-    # Note: Using multiple AND conditions instead of parentheses as the API doesn't support parentheses in query format
-    query = f"agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6"
+    # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
+    query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
 
     # Use the v2 search API with query parameter
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"

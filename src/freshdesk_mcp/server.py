@@ -572,8 +572,9 @@ async def my_unresolved_tickets_v2(
     - "tickets assigned to me"
     - Any query asking about the current user's tickets
     
-    Query format: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
+    Query format: agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6
     This includes Open (2), Pending (3), and any status greater than 6.
+    Note: Uses multiple AND conditions instead of parentheses as the API doesn't support parentheses in query format.
     
     The agent ID is automatically fetched from /api/v2/agents/me endpoint.
 
@@ -597,8 +598,9 @@ async def my_unresolved_tickets_v2(
     if page < 1:
         return {"error": "Page number must be greater than or equal to 1"}
 
-    # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
-    query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
+    # Build query string: agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6
+    # Note: Using multiple AND conditions instead of parentheses as the API doesn't support parentheses in query format
+    query = f"agent_id:{agent_id} AND status:2 OR agent_id:{agent_id} AND status:3 OR agent_id:{agent_id} AND status:>6"
 
     # Use the v2 search API with query parameter
     url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"

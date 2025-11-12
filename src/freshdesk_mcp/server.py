@@ -596,9 +596,7 @@ async def my_unresolved_tickets() -> Dict[str, Any]:
     }
 
 @mcp.tool()
-async def my_unresolved_tickets_v2(
-    page: Optional[int] = 1
-) -> Dict[str, Any]:
+async def my_unresolved_tickets_v2() -> Dict[str, Any]:
     """Get my unresolved tickets using v2 query API.
 
     This tool uses the v2 search API with query parameter format to fetch
@@ -618,9 +616,6 @@ async def my_unresolved_tickets_v2(
     
     The agent ID is automatically fetched from /api/v2/agents/me endpoint.
 
-    Args:
-        page: Page number (default: 1)
-
     Returns:
         Dictionary with tickets and pagination information
 
@@ -634,81 +629,83 @@ async def my_unresolved_tickets_v2(
     if agent_id is None:
         return {"error": "Could not get agent ID from API. Please check your authentication."}
 
-    # Validate pagination parameters
-    if page < 1:
-        return {"error": "Page number must be greater than or equal to 1"}
-
     # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
     query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
 
     # Use the v2 search API with query parameter
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
-
-    # Build query parameters
-    params = {
-        "query": query,
-        "page": page
-    }
-
+    # Use aiohttp to avoid URL encoding of query parameter
+    import aiohttp
+    import ssl
+    
+    base_url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
+    # Construct URL with query parameter - aiohttp allows passing raw query strings
+    url = f"{base_url}?query={query}"
+    
     headers = _get_auth_headers()
-
-    async with httpx.AsyncClient(verify=False) as client:
-        try:
-            response = await client.get(url, headers=headers, params=params, auth=_get_auth())
-            response.raise_for_status()
-
-            # Parse pagination from Link header
-            link_header = response.headers.get('Link', '')
-
-            tickets = response.json()
-
-            # Format tickets with URLs and readable structure
-            formatted_tickets = []
-            for ticket in tickets:
-                ticket_id = ticket.get("id")
-                ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
+    auth = _get_auth()
+    
+    # Create SSL context to disable verification (matching httpx verify=False)
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    
+    # Use aiohttp with connector that allows raw query strings
+    # Pass URL as string - aiohttp will use it without encoding
+    connector = aiohttp.TCPConnector(ssl=ssl_context)
+    try:
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.get(url, headers=headers, auth=aiohttp.BasicAuth(auth[0], auth[1])) as response:
+                response.raise_for_status()
+                tickets = await response.json()
                 
-                status_id = ticket.get("status")
-                priority_id = ticket.get("priority")
-                
-                formatted_ticket = {
-                    "ticket id": ticket_id,
-                    "url": ticket_url,
-                    "subject": ticket.get("subject", "No subject"),
-                    "status": _get_status_name(status_id),
-                    "priority": _get_priority_name(priority_id),
-                    "resolution_due_by": ticket.get("due_by", "") 
-                }
-                
-                # Only include fr_due_by if it exists
-                if ticket.get("fr_due_by"):
-                    formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+                # Parse pagination from Link header
+                link_header = response.headers.get('Link', '')
+
+                # Format tickets with URLs and readable structure
+                formatted_tickets = []
+                for ticket in tickets:
+                    ticket_id = ticket.get("id")
+                    ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
                     
-                formatted_tickets.append(formatted_ticket)
+                    status_id = ticket.get("status")
+                    priority_id = ticket.get("priority")
+                    
+                    formatted_ticket = {
+                        "ticket id": ticket_id,
+                        "url": ticket_url,
+                        "subject": ticket.get("subject", "No subject"),
+                        "status": _get_status_name(status_id),
+                        "priority": _get_priority_name(priority_id),
+                        "resolution_due_by": ticket.get("due_by", "") 
+                    }
+                    
+                    # Only include fr_due_by if it exists
+                    if ticket.get("fr_due_by"):
+                        formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+                        
+                    formatted_tickets.append(formatted_ticket)
 
-            # Build readable summary
-            readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
+                # Build readable summary
+                readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
 
-            return {
-                "summary": readable_summary,
-                "ticket_count": len(formatted_tickets),
-                "tickets": formatted_tickets,
-                "pagination": {
-                    "current_page": page
-                },
-                "raw_tickets": tickets
-            }
-
-        except httpx.HTTPStatusError as e:
-            error_details = f"Failed to fetch unresolved tickets: {str(e)}"
-            try:
-                if e.response:
-                    error_details += f" - {e.response.json()}"
-            except:
-                pass
-            return {"error": error_details}
-        except Exception as e:
-            return {"error": f"An unexpected error occurred: {str(e)}"}
+                return {
+                    "summary": readable_summary,
+                    "ticket_count": len(formatted_tickets),
+                    "tickets": formatted_tickets,
+                    "pagination": {
+                        "current_page": 1
+                    },
+                    "raw_tickets": tickets
+                }
+    except aiohttp.ClientResponseError as e:
+        error_details = f"Failed to fetch unresolved tickets: {str(e)}"
+        try:
+            error_details += f" - Status: {e.status}"
+        except:
+            pass
+        return {"error": error_details}
+    except Exception as e:
+        return {"error": f"An unexpected error occurred: {str(e)}"}
 
 
 @mcp.tool()

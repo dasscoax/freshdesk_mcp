@@ -629,83 +629,80 @@ async def my_unresolved_tickets_v2() -> Dict[str, Any]:
     if agent_id is None:
         return {"error": "Could not get agent ID from API. Please check your authentication."}
 
-    # Build query string: agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)
+    # Build raw Freshdesk query (NO ENCODING EXCEPT SPACES → +)
     query = f"agent_id:{agent_id} AND (status:2 OR status:3 OR status:>6)"
+    query = query.replace(" ", "+")  # Freshdesk wants + instead of spaces
 
-    # Use the v2 search API with query parameter
-    # Use aiohttp to avoid URL encoding of query parameter
-    import aiohttp
-    import ssl
-    
-    base_url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets"
-    # Construct URL with query parameter - aiohttp allows passing raw query strings
-    url = f"{base_url}?query={query}"
-    
+    # Manually assemble URL with raw query
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets?query={query}"
     headers = _get_auth_headers()
-    auth = _get_auth()
     
-    # Create SSL context to disable verification (matching httpx verify=False)
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    
-    # Use aiohttp with connector that allows raw query strings
-    # Pass URL as string - aiohttp will use it without encoding
-    connector = aiohttp.TCPConnector(ssl=ssl_context)
-    try:
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, headers=headers, auth=aiohttp.BasicAuth(auth[0], auth[1])) as response:
-                response.raise_for_status()
-                tickets = await response.json()
-                
-                # Parse pagination from Link header
-                link_header = response.headers.get('Link', '')
-
-                # Format tickets with URLs and readable structure
-                formatted_tickets = []
-                for ticket in tickets:
-                    ticket_id = ticket.get("id")
-                    ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
-                    
-                    status_id = ticket.get("status")
-                    priority_id = ticket.get("priority")
-                    
-                    formatted_ticket = {
-                        "ticket id": ticket_id,
-                        "url": ticket_url,
-                        "subject": ticket.get("subject", "No subject"),
-                        "status": _get_status_name(status_id),
-                        "priority": _get_priority_name(priority_id),
-                        "resolution_due_by": ticket.get("due_by", "") 
-                    }
-                    
-                    # Only include fr_due_by if it exists
-                    if ticket.get("fr_due_by"):
-                        formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
-                        
-                    formatted_tickets.append(formatted_ticket)
-
-                # Build readable summary
-                readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
-
-                return {
-                    "summary": readable_summary,
-                    "ticket_count": len(formatted_tickets),
-                    "tickets": formatted_tickets,
-                    "pagination": {
-                        "current_page": 1
-                    },
-                    "raw_tickets": tickets
-                }
-    except aiohttp.ClientResponseError as e:
-        error_details = f"Failed to fetch unresolved tickets: {str(e)}"
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            error_details += f" - Status: {e.status}"
-        except:
-            pass
-        return {"error": error_details}
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+            response = await client.get(url, headers=headers, auth=_get_auth())
+            response.raise_for_status()
+            tickets = response.json()
+
+            # Format tickets with URLs and readable structure
+            formatted_tickets = []
+            for ticket in tickets:
+                ticket_id = ticket.get("id")
+                ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
+                
+                status_id = ticket.get("status")
+                priority_id = ticket.get("priority")
+                
+                formatted_ticket = {
+                    "ticket id": ticket_id,
+                    "url": ticket_url,
+                    "subject": ticket.get("subject", "No subject"),
+                    "status": _get_status_name(status_id),
+                    "priority": _get_priority_name(priority_id),
+                    "resolution_due_by": ticket.get("due_by", "") 
+                }
+                
+                # Only include fr_due_by if it exists
+                if ticket.get("fr_due_by"):
+                    formatted_ticket["first_response_due_by"] = ticket.get("fr_due_by")
+                    
+                formatted_tickets.append(formatted_ticket)
+
+            # Build readable summary
+            readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
+
+            return {
+                "summary": readable_summary,
+                "ticket_count": len(formatted_tickets),
+                "tickets": formatted_tickets,
+                "pagination": {
+                    "current_page": 1
+                },
+                "raw_tickets": tickets
+            }
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            try:
+                error_json = e.response.json()
+                if isinstance(error_json, dict):
+                    description = error_json.get('description', '')
+                    errors = error_json.get('errors', [])
+                    if errors:
+                        error_details = []
+                        for err in errors:
+                            if isinstance(err, dict):
+                                error_details.append(f"{err.get('field', '')}: {err.get('message', '')}")
+                            else:
+                                error_details.append(str(err))
+                        error_msg += f": {description}. Errors: {', '.join(error_details)}"
+                    else:
+                        error_msg += f": {description or e.response.text[:200]}"
+                else:
+                    error_msg += f": {e.response.text[:200]}"
+            except:
+                error_msg += f": {e.response.text[:500]}"
+            return {"error": error_msg}
+        except Exception as e:
+            return {"error": f"An unexpected error occurred: {str(e)}"}
 
 
 @mcp.tool()

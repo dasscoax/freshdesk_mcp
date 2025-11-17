@@ -634,18 +634,33 @@ async def my_unresolved_tickets_v2() -> Dict[str, Any]:
     query = query.replace(" ", "+")  # Freshdesk wants + instead of spaces
 
     # Manually assemble URL with raw query
-    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets?query={query}"
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/search/tickets?query=\"{query}\""
     headers = _get_auth_headers()
     
     async with httpx.AsyncClient(verify=False) as client:
         try:
             response = await client.get(url, headers=headers, auth=_get_auth())
             response.raise_for_status()
-            tickets = response.json()
+            response_data = response.json()
+
+            # Extract tickets from results key (API returns {"results": [...], "total": N})
+            if not isinstance(response_data, dict):
+                return {"error": f"Unexpected response format. Expected dict, got {type(response_data).__name__}"}
+            
+            tickets = response_data.get("results", [])
+            total = response_data.get("total", len(tickets))
+            
+            if not isinstance(tickets, list):
+                return {"error": f"Expected 'results' to be a list, got {type(tickets).__name__}"}
 
             # Format tickets with URLs and readable structure
             formatted_tickets = []
             for ticket in tickets:
+                # Ensure ticket is a dict before accessing it
+                if not isinstance(ticket, dict):
+                    logging.warning(f"Skipping invalid ticket (not a dict): {type(ticket).__name__}")
+                    continue
+                    
                 ticket_id = ticket.get("id")
                 ticket_url = f"https://{FRESHDESK_DOMAIN}/a/tickets/{ticket_id}"
                 
@@ -668,14 +683,15 @@ async def my_unresolved_tickets_v2() -> Dict[str, Any]:
                 formatted_tickets.append(formatted_ticket)
 
             # Build readable summary
-            readable_summary = f"Found {len(formatted_tickets)} unresolved ticket(s) assigned to you:"
+            readable_summary = f"Found {total} unresolved ticket(s) assigned to you:"
 
             return {
                 "summary": readable_summary,
-                "ticket_count": len(formatted_tickets),
+                "ticket_count": total,
                 "tickets": formatted_tickets,
                 "pagination": {
-                    "current_page": 1
+                    "current_page": 1,
+                    "total": total
                 },
                 "raw_tickets": tickets
             }

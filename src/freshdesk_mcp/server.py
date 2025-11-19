@@ -457,7 +457,7 @@ async def ticket_summary_insights(ticket_id: int) -> Dict[str, Any]:
                 conversations = conversations_result.get("conversations", [])
             
             # Get similar tickets using Copilot (limit to top 5 to avoid chat length issues)
-            similar_tickets_result = await find_similar_tickets_using_copilot(ticket_id)
+            similar_tickets_result = await find_similar_tickets_using_ai(ticket_id)
             similar_tickets_data = None
             if "error" not in similar_tickets_result:
                 # Extract and limit similar tickets to prevent chat length issues
@@ -645,9 +645,9 @@ async def ticket_summary_insights(ticket_id: int) -> Dict[str, Any]:
             return {"error": f"An unexpected error occurred: {str(e)}"}
 
 
-@mcp.tool(name="find-similar-tickets-using-copilot")
-async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
-    """Find similar tickets using Freshdesk Copilot AI.
+@mcp.tool(name="find-similar-tickets-using-ai")
+async def find_similar_tickets_using_ai(ticket_id: int) -> Dict[str, Any]:
+    """Find similar tickets using Freshdesk AI.
 
     This tool uses the Copilot API to find tickets similar to the given ticket ID.
     It returns tickets with AI-generated summaries, resolution details, and confidence scores.
@@ -676,7 +676,7 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
 
     Example:
         # Find similar tickets for ticket 12345
-        result = await find_similar_tickets(ticket_id=12345)
+        result = await find_similar_tickets_using_ai(ticket_id=12345)
     """
     if not ticket_id or ticket_id < 1:
         return {"error": "Invalid ticket_id. Must be a positive integer."}
@@ -693,6 +693,100 @@ async def find_similar_tickets_using_copilot(ticket_id: int) -> Dict[str, Any]:
             return {"error": f"Failed to find similar tickets: {str(e)}"}
         except Exception as e:
             return {"error": f"An unexpected error occurred: {str(e)}"}
+
+
+@mcp.tool(name="add-ticket-reply")
+async def add_ticket_reply(ticket_id: int, body: str = "Acknowledged. we are looking into the issue") -> Dict[str, Any]:
+    """Add a reply to a ticket.
+    
+    This tool adds a reply/response to a specific ticket using the Freshdesk API.
+    
+    Use this tool for queries like:
+    - "reply to ticket 12345 with message"
+    - "add response to ticket 12345"
+    - "respond to ticket 12345"
+    - "send reply to ticket 12345"
+    - "first response to ticket 12345"
+    - "send first response to ticket 12345"
+    - "add first response to ticket 12345"
+    - "provide first response to ticket 12345"
+    - "acknowledge ticket 12345"
+    - "acknowledge ticket 12345 with first response"
+    - "send acknowledgment to ticket 12345"
+    - "first response for ticket 12345"
+    - "first response"
+    - "send response to ticket 12345"
+    - "add response to ticket 12345"
+    - "provide response to ticket 12345"
+    - "provide reply to ticket 12345"
+    - "reply to ticket 12345"
+    - "reply"
+    
+    Args:
+        ticket_id: The ticket ID to reply to (required)
+        body: The reply message text (optional, defaults to "Acknowledged. we are looking into the issue")
+    
+    Returns:
+        Dictionary with body_text if successful, or error message if failed
+    
+    Example:
+        # Add a reply to ticket 12345 with default message
+        result = await add_ticket_reply(ticket_id=12345)
+        
+        # Add a custom reply to ticket 12345
+        result = await add_ticket_reply(ticket_id=12345, body="We are working on this issue. Will keep you posted.")
+    """
+    if not ticket_id or ticket_id < 1:
+        return {"error": "Invalid ticket_id. Must be a positive integer."}
+    
+    if not body or not body.strip():
+        return {"error": "Body parameter cannot be empty."}
+    
+    url = f"https://{FRESHDESK_DOMAIN}/api/v2/tickets/{ticket_id}/reply"
+    headers = _get_auth_headers()
+    
+    # Prepare request payload
+    payload = {
+        "body": body.strip()
+    }
+    
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            response = await client.post(url, headers=headers, auth=_get_auth(), json=payload)
+            response.raise_for_status()
+            response_data = response.json()
+            
+            # Check if body_text exists in response
+            if isinstance(response_data, dict) and "body_text" in response_data:
+                return {"body_text": response_data["body_text"]}
+            else:
+                return {"error": f"Unexpected response format. Expected body_text, got: {response_data}"}
+                
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            try:
+                error_json = e.response.json()
+                if isinstance(error_json, dict):
+                    description = error_json.get('description', '')
+                    errors = error_json.get('errors', [])
+                    if errors:
+                        error_details = []
+                        for err in errors:
+                            if isinstance(err, dict):
+                                error_details.append(f"{err.get('field', '')}: {err.get('message', '')}")
+                            else:
+                                error_details.append(str(err))
+                        error_msg += f": {description}. Errors: {', '.join(error_details)}"
+                    else:
+                        error_msg += f": {description or e.response.text[:200]}"
+                else:
+                    error_msg += f": {e.response.text[:200]}"
+            except:
+                error_msg += f": {e.response.text[:500]}"
+            return {"error": error_msg}
+        except Exception as e:
+            return {"error": f"An unexpected error occurred: {str(e)}"}
+
 
 def _format_date(date_str: str) -> str:
     """Convert ISO date string to readable format like 'Oct 14, 2025 10:45 AM'."""
@@ -1024,7 +1118,6 @@ async def _validate_squad_name(squad_name: str) -> Dict[str, Any]:
             return {"valid": False, "error": f"An unexpected error occurred: {str(e)}"}
 
 
-@mcp.tool(name="get-all-unresolved-tickets-in-a-squad")
 async def get_all_unresolved_tickets_in_a_squad(squad_name: str) -> Dict[str, Any]:
     """Get all unresolved tickets in a squad.
     
